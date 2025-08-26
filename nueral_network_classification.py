@@ -5,7 +5,7 @@ from sklearn.datasets import make_circles
 from sklearn.model_selection import train_test_split
 import torch
 
-from helper_functions import  plot_decision_boundary, safe_plot_decision_boundary 
+from helper_functions import  plot_decision_boundary 
 
 n_samples = 1000
 
