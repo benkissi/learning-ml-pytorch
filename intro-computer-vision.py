@@ -7,8 +7,10 @@ from torchvision.transforms import ToTensor
 from torch.utils.data import DataLoader
 
 import matplotlib.pyplot as plt
+from timeit import default_timer as timer
+from tqdm.auto import tqdm
 
-from helper_functions import plot_decision_boundary, accuracy_fn
+from helper_functions import plot_decision_boundary, accuracy_fn, print_train_time, eval_model
 
 # Getting dataset
 # Using MNIST dataset - FASHION MNIST
@@ -111,18 +113,107 @@ class FashionMNISTModelV0(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layer_stack(x)
-    
 
+device = "cpu" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+print(device)
 torch.manual_seed(42)
 
 model_0 = FashionMNISTModelV0(
     input_shape=784,
     hidden_units=10,
     output_shape=len(class_names)
+).to(device)
+
+# dummy_x = torch.randn([1, 1, 28, 28])
+# print(dummy_x.shape)
+
+# dummy_output = model_0(dummy_x)
+# print(dummy_output.shape)
+
+# Setup loss function
+loss_fn = nn.CrossEntropyLoss()
+optimizer = torch.optim.SGD(params=model_0.parameters(), lr=0.1)
+
+# 1. Loop through epochs
+# 2. Loop through training batches, perform training steps, calculate the train loss per batch
+# 3. Loop through testing batches, perform testing steps, calculate the test loss per batch
+# 4. Print out whats happening
+# 5. Time it all for fun
+
+# training loop
+torch.manual_seed(42)
+train_time_start = timer()
+
+# set number of epochs
+epochs = 3
+
+for epoch in tqdm(range(epochs)):
+    print(f"Epoch: {epoch}\n-------")
+    # training
+    train_loss = 0
+
+    # add a loop to loop through the training batches
+    for batch, (X, y) in enumerate(train_dataloader):
+        X, y = X.to(device), y.to(device)
+        model_0.train()
+
+        #1. Forward pass
+        y_pred = model_0(X)
+
+        #2. Calculate loss
+        loss = loss_fn(y_pred, y)
+        train_loss += loss.item()
+
+        #3. Optimizer zero grad
+        optimizer.zero_grad()
+
+        #4. Loss backward
+        loss.backward()
+
+        #5. optimizer step
+        optimizer.step()
+        
+        # print out whats happening
+        if batch % 400 == 0:
+            print(f"Looked at {batch * len(X)}/{len(train_dataloader.dataset)} samples.")
+    
+    # divide total train loss by length of train dataloader to get the average loss per batch
+    train_loss = train_loss / len(train_dataloader)
+
+    # Testing
+    test_loss, test_acc = 0, 0
+    model_0.eval()
+    with torch.inference_mode():
+        for X_test, y_test in test_dataloader:
+            X_test, y_test = X_test.to(device), y_test.to(device)
+            #1. Forward pass
+            test_pred = model_0(X_test)
+
+            #2. Calculate loss
+            loss = loss_fn(test_pred, y_test)
+            test_loss += loss.item()
+
+            #3. Calculate accuracy
+            test_acc += accuracy_fn(y_true=y_test, y_pred=test_pred.argmax(dim=1))
+
+        # calculate average loss and accuracy per batch
+        test_loss = test_loss / len(test_dataloader)
+        test_acc = test_acc / len(test_dataloader)
+    
+    # Print out whats happening
+    print(f"Train loss: {train_loss:.4f}")
+    print(f"Test loss: {test_loss:.4f} | Test accuracy: {test_acc:.4f}")
+
+train_time_end = timer()
+total_train_time_model_0 = print_train_time(start=train_time_start, end=train_time_end, device=device)
+
+
+
+model_0_results = eval_model(
+    model=model_0,
+    data_loader=test_dataloader,
+    loss_fn=loss_fn,
+    accuracy_fn=accuracy_fn
 )
 
-dummy_x = torch.randn([1, 1, 28, 28])
-print(dummy_x.shape)
-
-dummy_output = model_0(dummy_x)
-print(dummy_output.shape)
+print(model_0_results)

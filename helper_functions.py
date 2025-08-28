@@ -6,6 +6,7 @@ If a function gets defined once and could be used over and over, it'll go in her
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm.auto import tqdm
 
 # torch.set_num_threads(1)
 
@@ -17,6 +18,7 @@ import zipfile
 from pathlib import Path
 
 import requests
+
 
 # Walk through an image classification directory and find out how many files (images)
 # are in each subdirectory.
@@ -351,3 +353,109 @@ def download_data(source: str,
             os.remove(data_path / target_file)
     
     return image_path
+
+def print_train_time(start: float, end: float, device: torch.device=None):
+    """Prints the training time taken.
+
+    Args:
+        start (float): The start time of the training.
+        end (float): The end time of the training.
+    """
+    total_time = end - start
+    print(f"[INFO] Training time: {total_time:.2f} seconds")
+    return total_time
+
+def eval_model(model: torch.nn.Module,
+               data_loader: torch.utils.data.DataLoader,
+               loss_fn: torch.nn.Module,
+               accuracy_fn,
+               device):
+    """Returns a dictionary containing the results of model predicting on data loader."""
+    model.to(device)
+    loss, acc = 0, 0
+    model.eval()
+    with torch.inference_mode():
+        for X, y in tqdm(data_loader):
+            X, y = X.to(device), y.to(device)
+            # make predictions
+            y_pred = model(X)
+
+            # Accumulate the loss and acc values per batch
+            loss += loss_fn(y_pred, y)
+            acc += accuracy_fn(y_true=y, y_pred=y_pred.argmax(dim=1))
+
+        # Scale the loss and accuracy by the number of batches
+        loss /= len(data_loader)
+        acc /= len(data_loader)
+
+    return {"model_name": model.__class__.__name__, "loss": loss.item(), "accuracy": acc}
+
+def train_step(model: torch.nn.Module,
+               data_loader: torch.utils.data.DataLoader,
+               loss_fn: torch.nn.Module,
+               optimizer: torch.optim.Optimizer,
+               accuracy_fn,
+               device: torch.device = 'cpu'):
+    """Performs training with model trying to learn on dataloader"""
+    train_loss, train_acc = 0, 0
+    
+    for batch, (X, y) in enumerate(data_loader):
+        model.train()
+        X, y = X.to(device), y.to(device)
+
+        # 1. Forward pass
+        y_pred = model(X)
+
+        # 2. Calculate loss acc
+        loss = loss_fn(y_pred, y)
+        train_loss += loss.item()
+        train_acc += accuracy_fn(y_true=y, y_pred=y_pred.argmax(dim=1))
+
+        # 3. Optimizer zero grad
+        optimizer.zero_grad()
+
+        # 4. Loss backward
+        loss.backward()
+
+        # 5. Optimizer step
+        optimizer.step()
+        # print out whats happening
+        if batch % 400 == 0:
+            print(f"Looked at {batch * len(X)}/{len(data_loader.dataset)} samples.")
+
+    # Scale the loss and accuracy by the number of batches
+    train_loss /= len(data_loader)
+    train_acc /= len(data_loader)
+
+    print(f"[INFO] Train loss: {train_loss:.4f}, Train accuracy: {train_acc:.4f}")
+    return {"train_loss": train_loss, "train_acc": train_acc}
+
+def test_step(model: torch.nn.Module,
+            data_loader: torch.utils.data.DataLoader,
+            loss_fn: torch.nn.Module,
+            accuracy_fn,
+            device: torch.device = 'cpu'):
+    """Performs test on a trained model"""
+
+    test_loss, test_acc = 0, 0
+    model.eval()
+    with torch.inference_mode():
+        for X, y in data_loader:
+            X, y = X.to(device), y.to(device)
+
+            #1. Forward pass
+            test_pred = model(X)
+
+            #2. Calculate loss
+            loss = loss_fn(test_pred, y)
+            test_loss += loss.item()
+
+            #3. Calculate accuracy
+            test_acc += accuracy_fn(y_true=y, y_pred=test_pred.argmax(dim=1))
+
+        # calculate average loss and accuracy per batch
+        test_loss = test_loss / len(data_loader)
+        test_acc = test_acc / len(data_loader)
+
+        print(f"Test loss: {test_loss:.4f} | Test accuracy: {test_acc:.4f}")
+        return {"test_loss": test_loss, "test_acc": test_acc}
